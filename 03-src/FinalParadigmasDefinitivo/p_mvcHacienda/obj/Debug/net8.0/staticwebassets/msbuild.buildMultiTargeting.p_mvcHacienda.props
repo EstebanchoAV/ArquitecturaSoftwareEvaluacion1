@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\p_mvcHacienda.props" />
+</Project>

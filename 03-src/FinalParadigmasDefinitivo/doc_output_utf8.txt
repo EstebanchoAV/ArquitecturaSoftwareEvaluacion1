@@ -1,0 +1,155 @@
+﻿DISE├æO DE ARQUITECTURA TO-BE
+Fase 3 ÔÇö Modernizaci├│n Arquitect├│nica sobre las Solicitudes de Cambio
+Sistema: HaciendaSoft (Bib_Hacienda + p_mvcHacienda)
+Fecha: Agosto 2026
+Objetivo: Dise├▒ar la arquitectura que absorbe SC-1, SC-2 y SC-3 con el menor costo posible, aplicando los cinco principios SOLID sobre la evidencia levantada en el Diagn├│stico AS-IS y en el An├ílisis de Impacto.
+Metodolog├¡a: Cada intervenci├│n parte de un punto de dolor documentado en el An├ílisis de Impacto (Fase 2) y se sustenta en un ADR con al menos dos alternativas evaluadas.
+Restricci├│n: el comportamiento observable del sistema hoy vigente se preserva; las extensiones estructurales aqu├¡ descritas habilitan SC-1, SC-2 y SC-3 sin implementarlas por completo ÔÇö su implementaci├│n y medici├│n corresponden a la Fase 4.
+1. Resumen de intervenciones frente al An├ílisis de Impacto
+La siguiente tabla contrasta, para cada cambio estructural, qu├® propon├¡a el An├ílisis de Impacto original y por qu├® esta arquitectura se aparta de esa propuesta.
+Cambio en el TO-BE | Por qu├® se cambia (evidencia) | Principio(s)
+Crear HistoriaClinicaService | El an├ílisis (Fase 2, SC-3) propone agregar la historia cl├¡nica directamente a Hacienda. Se separa para no agravar el God Object identificado en el diagn├│stico AS-IS. | SRP
+Crear GeolocalizacionService y componer Chip en Res | El an├ílisis (SC-2) propone agregar chipId, latitud, longitud y ├║ltima lectura como atributos planos de Res. Se separa para que Res no conozca la l├│gica de rastreo GPS y para no propagar cambios a Ternero, Cebon y Novillo. | SRP
+Reemplazar PersistenciaService por repositorios espec├¡ficos (IResRepository, IVentaRepository, IChipRepository, IHistoriaClinicaRepository) | PersistenciaService es, seg├║n el propio an├ílisis, uno de los dos archivos donde convergen las tres solicitudes. Se divide para que cada repositorio tenga una ├║nica raz├│n de cambio. | SRP / DIP
+Eliminar IValidarInformacion como interfaz general y usar IValidador<T> | El an├ílisis detecta la violaci├│n de ISP con ValidarEventoClinico(). Con IValidador<T> cada entidad solo implementa el contrato de validaci├│n que le corresponde; desaparecen las excepciones NotImplementedException. | ISP
+Separar Venta de la idea exclusiva de vender una Res mediante ItemVenta/Producto | El an├ílisis propone adaptar Venta para soportar productos derivados modificando su constructor. Con ItemVenta, Venta puede representar una res, carne, leche o piel sin acumular condicionales. | OCP / LSP
+Convertir Hacienda en fachada/orquestador | Hacienda concentra la mayor├¡a de las operaciones (559 l├¡neas) en el AS-IS. Pasa a coordinar ResService, VentaService, PotreroService, GeolocalizacionService e HistoriaClinicaService en vez de implementarlas. | SRP / DIP
+Separar la persistencia del formato TXT con IAlmacenamiento<T> | El an├ílisis identifica que el formato .txt est├í hardcodeado en PersistenciaService. Con esta abstracci├│n, migrar a SQL Server u otro origen de datos no obliga a tocar los servicios de negocio. | DIP
+Usar composici├│n para Chip e HistoriaClinica en lugar de llenar Res de atributos | Reduce el impacto de futuras funcionalidades: Res conserva sus datos propios y delega la informaci├│n especializada a objetos independientes. | SRP / OCP
+
+2. Convenci├│n de colores del diagrama
+Color | Significado | Color | Significado
+Negro / blanco | Conservado del dise├▒o AS-IS, sin intervenci├│n estructural | Morado | Intervenci├│n por ISP
+Verde | Intervenci├│n por SRP | Rojo | Intervenci├│n por DIP (abstracciones e inyecci├│n)
+Azul | Intervenci├│n por OCP | Flecha naranja | Relaci├│n de herencia con sustituibilidad (LSP) verificada
+
+3. Diagrama UML TO-BE
+Notaci├│n extendida (visibilidad, tipos, multiplicidades). Los elementos en negro se conservan sin cambios estructurales; el resto est├í coloreado seg├║n el principio SOLID que motiva la intervenci├│n (ver leyenda del diagrama y la secci├│n 2). El diagrama se presenta en dos hojas apaisadas: dominio (3.1) y aplicaci├│n/validaci├│n/persistencia (3.2).
+3.1 Dominio
+3.2 Aplicaci├│n, validaci├│n y persistencia
+4. Verificaci├│n LSP de jerarqu├¡as
+Jerarqu├¡a | Origen | Precondiciones | Postcondiciones | Invariantes | Veredicto
+Res ÔåÆ Ternero / Cebon / Novillo | Conservada del AS-IS | El constructor de Res no cambia de firma (composici├│n v├¡a Chip/HistoriaClinica no altera par├ímetros); cada subclase sigue exigiendo los mismos datos. | calcularValor() de cada subclase mantiene su contrato de retorno (double ÔëÑ 0). | Ninguna subclase debilita invariantes de Res (peso y edad siguen valid├índose igual). | Sustituible ÔÇö LSP se preserva.
+ItemVenta ÔåÆ ResItem / ProductoItem | Nueva jerarqu├¡a (reemplaza el acoplamiento directo VentaÔÇôRes) | describir() y monto no exigen precondiciones adicionales en las subclases respecto al contrato abstracto. | Ambas subclases devuelven un monto ÔëÑ 0 y una descripci├│n no nula, igual que el contrato de ItemVenta. | Ninguna subclase asume que el ├¡tem representa siempre una res viva ni siempre un producto con stock. | Sustituible ÔÇö LSP verificado por dise├▒o.
+
+Nota: en ambas jerarqu├¡as las excepciones declaradas por las subclases no exceden el contrato del tipo base; ninguna subclase estrecha el conjunto de entradas aceptadas ni debilita las garant├¡as de salida.
+5. Registros de Decisi├│n Arquitect├│nica (ADR)
+ADR-01 ÔÇö Extraer HistoriaClinicaService de Hacienda
+Contexto y evidencia
+El inventario de hallazgos (Fase 1) y el An├ílisis de Impacto (SC-3) muestran a Hacienda.cs como un God Object de 559 l├¡neas que crecer├¡a a 650+ si la historia cl├¡nica se agrega directamente all├¡ (Hacienda.cs L450-557).
+Alternativas evaluadas
+A. Agregar registrar_evento_clinico() y consultar_historia_clinica() directamente en Hacienda (opci├│n del an├ílisis original).
+B. Extraer HistoriaClinicaService como servicio independiente que Hacienda invoca.
+C. Extraer la l├│gica a un m├®todo est├ítico global reutilizado por varios controllers.
+Decisi├│n
+Se elige B: HistoriaClinicaService encapsula el registro y consulta de eventos cl├¡nicos, y Hacienda delega en ├®l.
+Costo / consecuencia aceptada
+Se agrega una clase y una interfaz nuevas (IHistoriaClinicaService); Hacienda pasa a depender de una abstracci├│n en vez de implementar la l├│gica, lo que exige actualizar el composition root.
+Principio(s) involucrado(s)
+SRP (Hacienda pierde una responsabilidad), DIP (Hacienda depende de IHistoriaClinicaService, no de la implementaci├│n).
+ADR-02 ÔÇö Extraer GeolocalizacionService y componer Chip en Res
+Contexto y evidencia
+El an├ílisis (SC-2) propone agregar chip_id, latitud, longitud y ultima_lectura al constructor de Res, lo que rompe en cascada a Ternero, Cebon, Novillo y los 3 `new` de Potrero.anadir_res() (9 puntos de ruptura documentados).
+Alternativas evaluadas
+A. Modificar el constructor de Res y propagar el cambio a las 3 subclases (opci├│n del an├ílisis original).
+B. Componer un objeto Chip dentro de Res (atributo opcional) y mover la l├│gica de actualizaci├│n a GeolocalizacionService.
+C. Crear una tabla de asociaci├│n externa Res-Chip sin tocar la clase Res.
+Decisi├│n
+Se elige B: Chip se agrega como atributo de composici├│n (0..1) sin alterar la firma del constructor base; GeolocalizacionService concentra la l├│gica de actualizaci├│n de coordenadas.
+Costo / consecuencia aceptada
+Requiere un peque├▒o ajuste en Res para exponer el Chip asociado, pero evita modificar Ternero, Cebon, Novillo y los constructores en Potrero.
+Principio(s) involucrado(s)
+SRP (Res no conoce l├│gica de rastreo), OCP (la jerarqu├¡a de Res queda cerrada a modificaci├│n por este motivo), LSP (se preserva la sustituibilidad de las subclases).
+ADR-03 ÔÇö Reemplazar PersistenciaService por repositorios espec├¡ficos
+Contexto y evidencia
+El an├ílisis identifica a PersistenciaService como el segundo punto de convergencia de las tres solicitudes, con GuardarVentas/CargarVentas, GuardarReses/CargarReses y una futura GuardarHistoriaClinica/CargarHistoriaClinica todas en la misma clase.
+Alternativas evaluadas
+A. Mantener PersistenciaService como clase ├║nica y agregar m├®todos por cada nueva entidad (opci├│n del an├ílisis original).
+B. Dividir en repositorios por entidad (IResRepository, IVentaRepository, IChipRepository, IHistoriaClinicaRepository) detr├ís de interfaces.
+C. Introducir un ORM completo de terceros para reemplazar toda la persistencia de una vez.
+Decisi├│n
+Se elige B: cada repositorio tiene una ├║nica entidad a cargo; los servicios de dominio dependen de la interfaz, no de la clase concreta.
+Costo / consecuencia aceptada
+Aumenta el n├║mero de archivos (una interfaz y una implementaci├│n por entidad); exige definir el composition root que resuelva qu├® implementaci├│n concreta se inyecta.
+Principio(s) involucrado(s)
+SRP (una responsabilidad por repositorio), DIP (los servicios dependen de abstracciones), ISP (cada repositorio expone solo las operaciones de su entidad).
+ADR-04 ÔÇö Sustituir IValidarInformacion por IValidador<T> gen├®rico
+Contexto y evidencia
+El an├ílisis documenta que agregar ValidarEventoClinico() a IValidarInformacion obliga a los 4 validadores existentes a implementar un m├®todo que no les aplica, elevando las excepciones NotImplementedException de 12 a 20.
+Alternativas evaluadas
+A. Agregar el nuevo m├®todo a la interfaz general y lanzar NotImplementedException en los validadores que no aplican (opci├│n del an├ílisis original).
+B. Definir una interfaz gen├®rica IValidador<T> con un ├║nico m├®todo validar(T), implementada una vez por cada entidad.
+C. Eliminar la interfaz y validar con anotaciones/atributos por reflexi├│n.
+Decisi├│n
+Se elige B: cada validador implementa IValidador<T> solo para su propia entidad (IValidador<Res>, IValidador<Venta>, IValidador<EventoClinico>, etc.).
+Costo / consecuencia aceptada
+Se reemplaza una interfaz por varias instanciaciones gen├®ricas; el InterceptorValidarInformacion que intercepta por prefijo de nombre debe revisarse para operar sobre el tipo gen├®rico.
+Principio(s) involucrado(s)
+ISP (ning├║n validador implementa m├®todos que no usa).
+ADR-05 ÔÇö Introducir ItemVenta/Producto para desacoplar Venta de Res
+Contexto y evidencia
+El an├ílisis (SC-1) propone modificar el constructor de Venta, hoy fijo a (Potrero, DateTime, Res, uint), para admitir productos derivados sin remover una res del potrero.
+Alternativas evaluadas
+A. Hacer Res nullable en Venta y ramificar la l├│gica con condicionales seg├║n el tipo de venta (opci├│n del an├ílisis original).
+B. Introducir ItemVenta abstracto con ResItem y ProductoItem como subtipos; Venta pasa a contener una lista de ItemVenta.
+C. Crear una clase VentaProducto totalmente paralela a Venta, duplicando la l├│gica de totalizaci├│n.
+Decisi├│n
+Se elige B: Venta se vuelve agn├│stica al tipo de ├¡tem vendido y puede crecer a nuevos tipos de producto sin modificarse.
+Costo / consecuencia aceptada
+El formato de persistencia de ventas cambia (deja de ser una l├¡nea con Res fijo); se requiere migraci├│n o versi├│n de compatibilidad para Ventas.txt existente.
+Principio(s) involucrado(s)
+OCP (nuevos tipos de ├¡tem se agregan sin tocar Venta), LSP (ResItem y ProductoItem son sustituibles por ItemVenta).
+ADR-06 ÔÇö Convertir Hacienda en fachada/orquestador
+Contexto y evidencia
+El diagn├│stico AS-IS caracteriza a Hacienda.cs como God Object de 559 l├¡neas que concentra venta, gesti├│n de reses y (en el an├ílisis) crecer├¡a con geolocalizaci├│n e historia cl├¡nica.
+Alternativas evaluadas
+A. Mantener a Hacienda como clase que implementa directamente cada nueva operaci├│n (tendencia del an├ílisis original en las tres solicitudes).
+B. Reducir Hacienda a una fachada que coordina ResService, VentaService, PotreroService, GeolocalizacionService e HistoriaClinicaService.
+C. Eliminar Hacienda por completo y exponer los servicios directamente a los controllers.
+Decisi├│n
+Se elige B: se conserva un punto de entrada ├║nico hacia el dominio (├║til para los controllers existentes) pero sin l├│gica propia, solo coordinaci├│n.
+Costo / consecuencia aceptada
+Hacienda pasa a depender de cinco interfaces de servicio; el composition root debe resolver esas cinco dependencias al construirla.
+Principio(s) involucrado(s)
+SRP (Hacienda deja de acumular l├│gica), DIP (depende de interfaces de servicio, no de su implementaci├│n).
+ADR-07 ÔÇö Separar la persistencia del formato TXT con IAlmacenamiento<T>
+Contexto y evidencia
+El an├ílisis se├▒ala que el formato .txt est├í hardcodeado en PersistenciaService (por ejemplo, CargarReses() exige partes.Length >= 5) y que cualquier cambio de esquema rompe archivos existentes.
+Alternativas evaluadas
+A. Seguir escribiendo directamente contra archivos .txt dentro de cada repositorio (repetir el acoplamiento actual, solo que repartido).
+B. Introducir IAlmacenamiento<T> como abstracci├│n entre los repositorios y el medio f├¡sico, con AlmacenamientoTxt<T> como implementaci├│n actual.
+C. Migrar de inmediato a una base de datos relacional como parte de este mismo redise├▒o.
+Decisi├│n
+Se elige B: se preserva el comportamiento observable (sigue usando archivos .txt hoy) pero el punto de cambio para una futura migraci├│n queda aislado en una sola pieza reemplazable.
+Costo / consecuencia aceptada
+Una capa de indirecci├│n adicional entre el repositorio y el archivo f├¡sico; ning├║n beneficio funcional inmediato, es una inversi├│n para el mediano plazo.
+Principio(s) involucrado(s)
+DIP (los repositorios dependen de IAlmacenamiento<T>, no del sistema de archivos).
+ADR-08 ÔÇö Usar composici├│n para Chip e HistoriaClinica en lugar de atributos planos en Res
+Contexto y evidencia
+Tanto SC-2 como SC-3 propon├¡an, en el an├ílisis original, agregar atributos directamente a la clase abstracta Res, propag├índose a Ternero, Cebon y Novillo (documentado como cascada de 9 puntos de ruptura para SC-2).
+Alternativas evaluadas
+A. Seguir agregando atributos primitivos a Res por cada nueva capacidad (chip_id, latitud, longitud, l_historia_clinica, etc.).
+B. Componer objetos de valor independientes (Chip, HistoriaClinica) dentro de Res, cada uno con su propio ciclo de vida.
+Decisi├│n
+Se elige B: Res mantiene su forma actual y delega en objetos compuestos la informaci├│n especializada; una futura capacidad (por ejemplo, un sensor de temperatura) se agrega como un nuevo objeto compuesto, no como m├ís atributos de Res.
+Costo / consecuencia aceptada
+Se introduce indirecci├│n al leer datos de chip o historia cl├¡nica (res.chip?.latitud en vez de res.latitud); exige verificar nulabilidad cuando el chip o la historia a├║n no existen.
+Principio(s) involucrado(s)
+SRP (Res no absorbe responsabilidades de rastreo GPS ni de historial cl├¡nico), OCP (nuevas capacidades se agregan como nuevos objetos compuestos).
+6. Composition Root
+Toda la construcci├│n e inyecci├│n de dependencias (repositorios concretos, implementaciones de IAlmacenamiento<T>, validadores y servicios) se resuelve en un ├║nico punto: Program.cs, que pasa a actuar como composition root del sistema.
+M├│dulo de alto nivel | Depende de (abstracci├│n) | Implementaci├│n resuelta en Program.cs
+Hacienda (fachada) | IResService, IVentaService, IPotreroService, IGeolocalizacionService, IHistoriaClinicaService | ResService, VentaService, PotreroService, GeolocalizacionService, HistoriaClinicaService
+ResService / VentaService / HistoriaClinicaService | IResRepository, IVentaRepository, IHistoriaClinicaRepository | ResRepositoryTxt, VentaRepositoryTxt, HistoriaClinicaRepositoryTxt
+Repositorios *Txt | IAlmacenamiento<T> | AlmacenamientoTxt<T>
+Servicios y controllers | IValidador<T> | ValidadorRes, ValidadorVenta, ValidadorChip, ValidadorEventoClinico, ÔÇª
+
+7. Impacto proyectado: AS-IS vs TO-BE por solicitud de cambio
+La misma medici├│n del An├ílisis de Impacto (Fase 2), aplicada ahora sobre la arquitectura TO-BE. La comparaci├│n es la evidencia emp├¡rica de que el principio abierto/cerrado qued├│ aplicado: implementar cada solicitud pasa de modificar entre 7 y 11 clases existentes a modificar cero.
+Solicitud | AS-IS (seg├║n An├ílisis de Impacto) | TO-BE (proyectado sobre este dise├▒o)
+SC-1 ÔÇö Venta de productos derivados | 7 clases modificadas + 2 nuevas = 9 archivos (Venta, Hacienda, IVentaRes, ValidarVenta, PersistenciaService, VentaService, ResController) | 0 clases conservadas modificadas. Se crean Producto, ProductoItem y un ValidadorProducto; VentaService agrega un m├®todo nuevo. La extensi├│n entra por ItemVenta sin tocar Venta, Hacienda ni PersistenciaService.
+SC-2 ÔÇö Chips de geolocalizaci├│n | 11 clases modificadas + 2 nuevas = 13 archivos (Res, Ternero, Cebon, Novillo, Potrero, Hacienda, PersistenciaService, ValidarRes, PotreroService, ResService, ResController) | 0 modificaciones a Res, Ternero, Cebon o Novillo. Se implementa la l├│gica ya prevista en GeolocalizacionService, ChipRepository y ValidadorChip; Hacienda ya expone el punto de entrada.
+SC-3 ÔÇö Historia cl├¡nica | 10 clases modificadas + 4 nuevas = 14 archivos (Res, Hacienda, IValidarInformacion, Validacion, 4 validadores, PersistenciaService, Program) | 0 modificaciones a los validadores existentes (IValidador<T> ya es gen├®rico). Se implementa HistoriaClinicaService y HistoriaClinicaRepository, ya previstos en la arquitectura; no hay bombas de excepci├│n nuevas.
+
+Este cuadro se actualizar├í en la Fase 4 con los n├║meros reales una vez implementada la solicitud elegida por el equipo, junto con la tabla de clases creadas frente a clases modificadas exigida en la r├║brica (criterio 5).
