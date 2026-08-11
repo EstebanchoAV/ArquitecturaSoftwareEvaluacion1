@@ -41,7 +41,10 @@
 5. **Acceder al sistema**
    - Abre tu navegador en: `https://localhost:5001` o `http://localhost:5000`
    - La página principal mostrará todos los módulos disponibles
+  
+
+Igualmente dado el caso tambien hicimos una aplicacion de arranque llamada "EjecutarHaciendaSoft.bat"
 
 
 ## Link del video
-httploremipsum
+[Video](https://upbeduco-my.sharepoint.com/:v:/g/personal/nicolas_agudelom_upb_edu_co/IQC41J87_MwgQ65eb9U_5O0tAdchvFdG0ttP-tLTTMJ0Vnk?e=w22uVV)
